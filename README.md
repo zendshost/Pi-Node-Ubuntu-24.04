@@ -29,11 +29,11 @@ Memudahkan setup node dari awal hingga siap menjalankan protokol Pi.
 
 ## ⚙️ Persyaratan
 
-- Ubuntu 24.04 LTS (amd64)
-- User dengan hak akses `sudo` atau `root`
-- Koneksi internet stabil
-- Minimal 2GB RAM (disarankan 4GB+)
-- Storage minimal 10GB
+- Ubuntu 24.04 LTS (amd64)  
+- User dengan hak akses `sudo` atau `root`  
+- Koneksi internet stabil  
+- Minimal 2GB RAM (disarankan 4GB+)  
+- Storage minimal 10GB  
 
 ---
 
@@ -79,7 +79,7 @@ cd /root/pi-node
 pi-node status
 ```
 
-Jika berhasil, Anda akan melihat output seperti ini:
+Jika berhasil, output awal akan terlihat seperti ini (node **baru**):
 
 ```
 🐳 Container Status
@@ -108,6 +108,77 @@ Outgoing: 57 peers
 
 ---
 
+## ⚠️ Node Baru vs Node Siap Digunakan
+
+### Node Baru (Belum Sinkron)
+
+* Node **belum bisa melakukan transaksi**.
+* Perlu waktu **±1–2 hari** untuk menyinkronkan ledger dengan jaringan.
+* Cek status JSON secara berkala:
+
+```json
+{
+  "horizon_version": "2.23.1-6def2295c2e739883f028b5098c30d82969a94a5",
+  "core_version": "stellar-core 19.6.0",
+  "ingest_latest_ledger": 0,
+  "history_latest_ledger": 0,
+  "core_latest_ledger": 1,
+  "network_passphrase": "Pi Network",
+  "current_protocol_version": 0,
+  "supported_protocol_version": 19
+}
+```
+
+### Node Siap Digunakan
+
+Setelah sinkronisasi selesai, JSON status akan menunjukkan ledger terbaru:
+
+```json
+{
+  "horizon_version": "2.23.1-6def2295c2e739883f028b5098c30d82969a94a5",
+  "core_version": "stellar-core 19.6.0",
+  "ingest_latest_ledger": 24001909,
+  "history_latest_ledger": 24001909,
+  "history_latest_ledger_closed_at": "2025-12-02T13:22:06Z",
+  "history_elder_ledger": 22488704,
+  "core_latest_ledger": 24001909,
+  "network_passphrase": "Pi Network",
+  "current_protocol_version": 19,
+  "supported_protocol_version": 19,
+  "core_supported_protocol_version": 19
+}
+```
+
+* Node sekarang **siap melakukan transaksi**.
+* Ledger dan status protokol sudah sinkron dengan jaringan.
+
+---
+
+## 🗺️ Diagram Alur Sinkronisasi Node
+
+```mermaid
+flowchart TD
+    A[Initialize Node] --> B[Catching Up Ledger]
+    B --> C[Ledger Sync in Progress]
+    C --> D[Synced with Network]
+    D --> E[Node Ready for Transactions]
+
+    %% Status JSON examples
+    B -->|ingest_latest_ledger = 0| B_note[{"ingest_latest_ledger":0, "history_latest_ledger":0}]
+    C -->|ledger increasing| C_note[{"ingest_latest_ledger":24001000, "history_latest_ledger":24001000}]
+    D -->|ledger up to date| D_note[{"ingest_latest_ledger":24001909, "history_latest_ledger":24001909}]
+```
+
+**Penjelasan Tahap:**
+
+1. **Initialize Node**: Node baru saja di-install. Ledger belum sinkron.
+2. **Catching Up Ledger**: Node mulai mengunduh ledger dari jaringan. Status `Catching up`.
+3. **Ledger Sync in Progress**: Ledger meningkat bertahap. Node masih belum bisa transaksi.
+4. **Synced with Network**: Node sudah sinkron dengan ledger terbaru jaringan.
+5. **Node Ready for Transactions**: Node siap digunakan untuk transaksi.
+
+---
+
 ## ✅ Cek Versi Pi Node
 
 ```bash
@@ -124,8 +195,8 @@ pi-node --version
 sudo systemctl status docker
 ```
 
-* Gunakan user dengan hak `sudo` selama instalasi.
 * Jalankan node secara rutin agar ledger cepat sinkron.
+* Gunakan user dengan hak `sudo` selama instalasi.
 
 ---
 
