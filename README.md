@@ -1,31 +1,43 @@
-
-# Pi Node Ubuntu 24.04 Installer
+# Pi Node Ubuntu 24.04 Installer 🚀
 
 ![Pi Network Logo](https://minepi.com/favicon.ico)
 
-Skrip ini mempermudah instalasi **Pi Node (Official Version)** pada sistem **Ubuntu 24.04**. Semua langkah, mulai dari instalasi dependensi hingga inisialisasi node, telah diotomatisasi dengan `run.sh`.
+Automatis installer untuk **Pi Node (Official Version)** di **Ubuntu 24.04 LTS**.  
+Memudahkan setup node dari awal hingga siap menjalankan protokol Pi.
 
 ---
 
-## 🔹 Fitur
+## 🔥 Status Proyek
 
-- Instalasi semua dependensi yang diperlukan
-- Setup Docker CE (container runtime untuk Pi Node)
-- Menambahkan repository resmi Pi Network
+| Component | Status |
+|-----------|--------|
+| Docker    | ![Docker](https://img.shields.io/badge/Docker-Installed-blue) |
+| Pi Node   | ![Pi Node](https://img.shields.io/badge/Pi_Node-Ready-brightgreen) |
+| Ubuntu   | ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-orange) |
+
+---
+
+## 📦 Fitur Utama
+
+- Install dependensi (`ca-certificates`, `curl`, `gnupg`)
+- Setup Docker CE (container runtime)
+- Tambahkan repository resmi Pi Network
 - Instalasi Pi Node CLI resmi
-- Inisialisasi node untuk mulai berpartisipasi dalam jaringan Pi
+- Initialize node untuk berpartisipasi dalam jaringan
 
 ---
 
-## 📦 Persyaratan
+## ⚙️ Persyaratan
 
-- Sistem: **Ubuntu 24.04 LTS**
-- Akses **root** atau **sudo**
+- Ubuntu 24.04 LTS (amd64)
+- User dengan hak akses `sudo` atau `root`
 - Koneksi internet stabil
+- Minimal 2GB RAM (disarankan 4GB+)
+- Storage minimal 10GB
 
 ---
 
-## ⚡ Instalasi
+## 🚀 Cara Instalasi
 
 1. **Clone repository**
 
@@ -40,24 +52,20 @@ cd Pi-Node-Ubuntu-24.04
 sudo bash run.sh
 ```
 
-Skrip akan melakukan langkah-langkah berikut:
+Skrip akan otomatis:
 
-1. Install dependensi (`ca-certificates`, `curl`, `gnupg`)
-2. Menambahkan GPG key Docker
-3. Menambahkan repository Docker
-4. Install Docker CE
-5. Start dan enable Docker service
-6. Tambah GPG key Pi Network repository
-7. Tambah repository Pi Network
-8. Install Pi Node CLI
-9. Tampilkan informasi repo dan versi
-10. Initialize Pi Node
+1. Install dependensi
+2. Tambah GPG key & repository Docker
+3. Install Docker CE
+4. Aktifkan service Docker
+5. Tambah GPG key & repository Pi Network
+6. Install Pi Node CLI
+7. Tampilkan repo & versi
+8. Initialize Pi Node
 
 ---
 
 ## 🛠️ Penggunaan
-
-Setelah instalasi selesai:
 
 * Masuk ke folder node:
 
@@ -71,13 +79,36 @@ cd /root/pi-node
 pi-node status
 ```
 
-Node Anda sekarang siap digunakan di jaringan Pi.
+Jika berhasil, Anda akan melihat output seperti ini:
+
+```
+🐳 Container Status
+==================
+✅ Container: mainnet (Running)
+
+⭐ Protocol Status
+=================
+State: Catching up
+Status: Catching up to ledger 24001791: Applying buckets 7%. Currently on level 10
+Ledger: 1
+Quorum Ledger: 24001849
+
+🌅 Horizon Status
+=================
+Status: ✅ Running
+Core Latest Ledger: 1
+History Latest Ledger: Not synced
+Ingest Latest Ledger: Not synced
+
+🌐 Peer Connections
+==================
+Incoming: 5 peers
+Outgoing: 57 peers
+```
 
 ---
 
-## ✅ Cek Versi
-
-Untuk memastikan Pi Node terpasang dengan benar:
+## ✅ Cek Versi Pi Node
 
 ```bash
 pi-node --version
@@ -85,20 +116,29 @@ pi-node --version
 
 ---
 
-## 💡 Catatan
+## 💡 Tips
 
-* Pastikan Docker berjalan sebelum memulai node.
-* Gunakan user dengan hak akses `sudo` untuk instalasi.
-* Skrip ini dirancang khusus untuk **Ubuntu 24.04** dan arsitektur **amd64**.
+* Pastikan Docker aktif:
+
+```bash
+sudo systemctl status docker
+```
+
+* Gunakan user dengan hak `sudo` selama instalasi.
+* Jalankan node secara rutin agar ledger cepat sinkron.
 
 ---
 
 ## 📜 Lisensi
 
-Repository ini bersifat **open-source**. Gunakan dan modifikasi sesuai kebutuhan Anda.
+Open-source, bebas digunakan dan dimodifikasi sesuai kebutuhan.
 
 ---
 
-## 🔗 Link Repository
+## 🔗 Repository
 
 [https://github.com/zendshost/Pi-Node-Ubuntu-24.04](https://github.com/zendshost/Pi-Node-Ubuntu-24.04.git)
+
+---
+
+Made with ❤️ for Pi Network ZendsHost
