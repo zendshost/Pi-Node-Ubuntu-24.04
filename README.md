@@ -1,25 +1,31 @@
-# Pi Node Ubuntu 24.04
 
-Script ini otomatis menginstal **Pi Network Node** di Ubuntu 24.04, lengkap dengan:
+# Pi Node Ubuntu 24.04 Installer
 
-- Docker & Docker Compose
-- Folder node dan docker volumes
-- Pi Node container (Mainnet)
-- Systemd service untuk auto-start node
-- Smart monitoring script untuk cek ledger & kirim notifikasi ke Telegram
+![Pi Network Logo](https://minepi.com/favicon.ico)
+
+Skrip ini mempermudah instalasi **Pi Node (Official Version)** pada sistem **Ubuntu 24.04**. Semua langkah, mulai dari instalasi dependensi hingga inisialisasi node, telah diotomatisasi dengan `run.sh`.
 
 ---
 
-## Persyaratan
+## 🔹 Fitur
 
-- Ubuntu 24.04 minimal
-- Akses root / sudo
+- Instalasi semua dependensi yang diperlukan
+- Setup Docker CE (container runtime untuk Pi Node)
+- Menambahkan repository resmi Pi Network
+- Instalasi Pi Node CLI resmi
+- Inisialisasi node untuk mulai berpartisipasi dalam jaringan Pi
+
+---
+
+## 📦 Persyaratan
+
+- Sistem: **Ubuntu 24.04 LTS**
+- Akses **root** atau **sudo**
 - Koneksi internet stabil
-- Akun Telegram dan bot Telegram untuk notifikasi
 
 ---
 
-## Instalasi
+## ⚡ Instalasi
 
 1. **Clone repository**
 
@@ -28,82 +34,75 @@ git clone https://github.com/zendshost/Pi-Node-Ubuntu-24.04.git
 cd Pi-Node-Ubuntu-24.04
 ````
 
-2. **Jalankan script instalasi**
+2. **Jalankan skrip instalasi**
 
 ```bash
-sudo bash install_pi_node.sh
+sudo bash run.sh
 ```
 
-> Script akan meminta:
->
-> * **Token bot Telegram**
-> * **Chat ID Telegram**
+Skrip akan melakukan langkah-langkah berikut:
 
-Script akan otomatis:
-
-* Update & install dependencies
-* Install Docker & Compose
-* Buat folder node dan docker volumes
-* Buat file `.env` dengan PostgreSQL password dan node private key
-* Buat docker-compose.yml untuk Pi Node Mainnet
-* Inisialisasi node
-* Buat systemd service untuk node & smart monitoring
-* Jalankan node dan monitoring otomatis
+1. Install dependensi (`ca-certificates`, `curl`, `gnupg`)
+2. Menambahkan GPG key Docker
+3. Menambahkan repository Docker
+4. Install Docker CE
+5. Start dan enable Docker service
+6. Tambah GPG key Pi Network repository
+7. Tambah repository Pi Network
+8. Install Pi Node CLI
+9. Tampilkan informasi repo dan versi
+10. Initialize Pi Node
 
 ---
 
-## Perintah penting
+## 🛠️ Penggunaan
 
-* **Cek status node Pi**:
+Setelah instalasi selesai:
+
+* Masuk ke folder node:
 
 ```bash
-sudo systemctl status pi-node.service
+cd /root/pi-node
 ```
 
-* **Cek log node realtime**:
+* Cek status node:
 
 ```bash
-sudo docker logs -f mainnet
+pi-node status
 ```
 
-* **Cek status monitoring Telegram**:
+Node Anda sekarang siap digunakan di jaringan Pi.
+
+---
+
+## ✅ Cek Versi
+
+Untuk memastikan Pi Node terpasang dengan benar:
 
 ```bash
-sudo systemctl status pi-node-monitor.service
+pi-node --version
 ```
 
 ---
 
-## Informasi tambahan
+## 💡 Catatan
 
-* Private key node **tidak sama** dengan akun Pi di aplikasi.
-* Node akan berjalan terus **walau logout atau reboot**.
-* Monitoring Telegram akan mengirimkan notifikasi ketika ledger sinkron atau belum.
-* Ledger sync bisa memakan waktu beberapa jam tergantung koneksi dan spesifikasi server.
-
----
-
-## Reset Node / Reinstall
-
-Jika ingin mengulang instalasi node, gunakan:
-
-```bash
-sudo pi-node initialize --force
-```
-
-> Hati-hati, ini akan overwrite konfigurasi node yang ada.
+* Pastikan Docker berjalan sebelum memulai node.
+* Gunakan user dengan hak akses `sudo` untuk instalasi.
+* Skrip ini dirancang khusus untuk **Ubuntu 24.04** dan arsitektur **amd64**.
 
 ---
 
-## Disclaimer
+## 📜 Lisensi
 
-Script ini dibuat untuk **node operator** Pi Network.
-Tidak digunakan untuk transaksi akun pribadi di aplikasi Pi Network.
+Repository ini bersifat **open-source**. Gunakan dan modifikasi sesuai kebutuhan Anda.
 
 ---
 
-## Repository
+## 🔗 Link Repository
 
 [https://github.com/zendshost/Pi-Node-Ubuntu-24.04](https://github.com/zendshost/Pi-Node-Ubuntu-24.04.git)
 
----
+
+Apakah mau saya buatkan versi itu juga?
+```
