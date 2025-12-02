@@ -1,40 +1,64 @@
 #!/bin/bash
+# File: install_and_monitor_pi_node.sh
+# Versi: 1.0
+# Fungsi: Install Pi Node, setup docker, systemd, dan monitoring dengan Telegram
 
 set -euo pipefail
 IFS=$'\n\t'
 
+##############################
+# Fungsi logging
+##############################
 log() { echo -e "\e[1;34m[INFO]\e[0m $1"; }
 error() { echo -e "\e[1;31m[ERROR]\e[0m $1" >&2; }
 
+##############################
+# INPUT TELEGRAM
+##############################
+read -rp "Masukkan Telegram Bot Token: " TELEGRAM_BOT_TOKEN
+read -rp "Masukkan Telegram Chat ID: " TELEGRAM_CHAT_ID
+
+##############################
+# Variabel
+##############################
 PI_FOLDER="/root/pi-node"
 DOCKER_VOLUMES="$PI_FOLDER/docker_volumes"
 SERVICE_NAME="pi-node.service"
-AUTO_UPDATE_SCRIPT="/usr/local/bin/pi-node-auto-update.sh"
+CHECK_INTERVAL=300 # detik
+NODE_CONTAINER_NAME="mainnet"
 
-# Random PostgreSQL password
-PG_PASSWORD=$(openssl rand -base64 24)
-
+##############################
+# Update & Install dependencies
+##############################
 log "=== Update & install dependencies ==="
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl gnupg lsb-release ca-certificates git wget cron openssl jq
+apt update && apt upgrade -y
+apt install -y curl gnupg lsb-release ca-certificates git wget cron openssl
 
+##############################
+# Install Docker & Compose
+##############################
 log "=== Install Docker & Compose ==="
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-sudo systemctl enable docker
-sudo systemctl start docker
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl enable docker
+systemctl start docker
 
-log "=== Buat folder node & docker volumes ==="
-sudo mkdir -p "$DOCKER_VOLUMES/mainnet/stellar" "$DOCKER_VOLUMES/mainnet/supervisor_logs" "$DOCKER_VOLUMES/mainnet/history"
-mkdir -p "$PI_FOLDER"
-cd "$PI_FOLDER"
+##############################
+# Install Pi Node (manual .deb)
+##############################
+log "=== Install Pi Node ==="
+mkdir -p "$PI_FOLDER" "$DOCKER_VOLUMES"
 
-log "=== Buat docker-compose.yml ==="
-tee docker-compose.yml > /dev/null <<EOF
-version: '3.8'
+# Buat .env contoh
+cat > "$PI_FOLDER/.env" <<EOF
+# Pi Node Environment
+EOF
+
+# Buat docker-compose.yml (versi berhasil)
+cat > "$PI_FOLDER/docker-compose.yml" <<EOF
 services:
   mainnet:
     image: pinetwork/pi-node-docker:organization_mainnet-v1.2-p19.6
@@ -53,69 +77,19 @@ services:
     restart: unless-stopped
 EOF
 
-log "=== Buat file .env dengan node private key ==="
-if [ ! -f .env ]; then
-  NODE_KEY=$(openssl rand -hex 32)
-  echo "NODE_PRIVATE_KEY=$NODE_KEY" > .env
-  echo "PRIVATE_KEY=$NODE_KEY" >> .env
-  log "Node private key telah digenerate dan disimpan di .env"
-else
-  log ".env sudah ada, menggunakan node key yang ada."
-fi
-
-log "=== Jalankan container mainnet ==="
-sudo docker compose up -d
-
-log "=== Buat wrapper pi-node ==="
-tee pi-node > /dev/null <<'EOF'
-#!/bin/bash
-set -euo pipefail
-PI_FOLDER="/root/pi-node"
+##############################
+# Jalankan Pi Node pertama kali
+##############################
+log "=== Jalankan container Pi Node ==="
 cd "$PI_FOLDER"
+docker compose up -d
 
-case "${1:-}" in
-  status)
-    sudo docker ps --filter "name=mainnet"
-    ;;
-  logs)
-    sudo docker logs -f mainnet
-    ;;
-  start)
-    sudo docker start mainnet
-    ;;
-  stop)
-    sudo docker stop mainnet
-    ;;
-  restart)
-    sudo docker restart mainnet
-    ;;
-  key)
-    grep PRIVATE_KEY .env | cut -d'=' -f2
-    ;;
-  sync)
-    echo "[INFO] Menunggu node sinkronisasi ledger penuh..."
-    while true; do
-      LEDGER=$(sudo docker exec mainnet curl -s http://localhost:8000/ledgers | jq '.ledgers | length')
-      if [ "$LEDGER" -gt 0 ]; then
-        echo "[INFO] Node sudah sinkron."
-        break
-      else
-        echo "[INFO] Node belum sinkron, tunggu 30 detik..."
-        sleep 30
-      fi
-    done
-    ;;
-  *)
-    echo "Usage: pi-node {status|logs|start|stop|restart|key|sync}"
-    ;;
-esac
-EOF
-chmod +x pi-node
-sudo mv pi-node /usr/local/bin/
-
-log "=== Buat systemd service ==="
+##############################
+# Buat systemd service Pi Node
+##############################
+log "=== Buat systemd service Pi Node ==="
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
-sudo tee "$SERVICE_PATH" > /dev/null <<EOF
+tee "$SERVICE_PATH" > /dev/null <<EOF
 [Unit]
 Description=Pi Node
 After=docker.service
@@ -133,37 +107,63 @@ TimeoutStartSec=0
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable "$SERVICE_NAME"
-sudo systemctl start "$SERVICE_NAME"
+systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
+systemctl start "$SERVICE_NAME"
 
-log "=== Buat script auto-update ==="
-tee "$AUTO_UPDATE_SCRIPT" > /dev/null <<EOF
+##############################
+# Buat script monitoring & notifikasi Telegram
+##############################
+log "=== Buat script monitoring Pi Node & Telegram ==="
+MONITOR_SCRIPT="$PI_FOLDER/pi-node-monitor.sh"
+tee "$MONITOR_SCRIPT" > /dev/null <<EOF
 #!/bin/bash
 set -euo pipefail
-PI_FOLDER="$PI_FOLDER"
-SERVICE_NAME="$SERVICE_NAME"
 
-echo "[INFO] Memulai update Pi Node..."
-cd "\$PI_FOLDER"
-# backup .env & docker volumes
-cp .env .env.backup_\$(date +%Y%m%d%H%M)
-sudo docker compose down
-sudo docker pull pinetwork/pi-node-docker:organization_mainnet-v1.2-p19.6
-sudo docker compose up -d
-echo "[INFO] Update selesai, node berjalan kembali."
+NODE_CONTAINER_NAME="$NODE_CONTAINER_NAME"
+CHECK_INTERVAL=$CHECK_INTERVAL
+TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID"
+
+send_telegram() {
+    local message="\$1"
+    curl -s -X POST "https://api.telegram.org/bot\${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d chat_id="\${TELEGRAM_CHAT_ID}" \
+        -d text="\${message}" > /dev/null
+}
+
+log() { echo -e "[INFO] \$(date '+%Y-%m-%d %H:%M:%S') - \$1"; }
+
+log "Memulai monitoring Pi Node..."
+while true; do
+    if ! docker ps --format '{{.Names}}' | grep -q "^\\${NODE_CONTAINER_NAME}\$"; then
+        log "Container \${NODE_CONTAINER_NAME} tidak berjalan."
+        send_telegram "⚠️ Pi Node container \${NODE_CONTAINER_NAME} tidak berjalan!"
+        sleep \$CHECK_INTERVAL
+        continue
+    fi
+
+    INGEST_LEDGER=\$(docker exec -i "\$NODE_CONTAINER_NAME" pi-node status 2>/dev/null | grep "Ingest Latest Ledger" | awk '{print \$NF}' || echo 0)
+    CORE_LEDGER=\$(docker exec -i "\$NODE_CONTAINER_NAME" pi-node status 2>/dev/null | grep "Core Latest Ledger" | awk '{print \$NF}' || echo 0)
+
+    if [[ "\$INGEST_LEDGER" == "\$CORE_LEDGER" ]] && [[ "\$CORE_LEDGER" != "0" ]]; then
+        log "✅ Node sudah sinkron! Ledger: \$INGEST_LEDGER"
+        send_telegram "🎉 Pi Node siap transaksi! Ledger: \$INGEST_LEDGER"
+        break
+    else
+        log "Ledger belum sinkron. Ingest: \$INGEST_LEDGER / Core: \$CORE_LEDGER"
+    fi
+    sleep \$CHECK_INTERVAL
+done
 EOF
-sudo chmod +x "$AUTO_UPDATE_SCRIPT"
 
-log "=== Jadwalkan cron auto-update setiap 6 jam ==="
-(crontab -l 2>/dev/null; echo "0 */6 * * * $AUTO_UPDATE_SCRIPT >> /var/log/pi-node-auto-update.log 2>&1") | crontab -
+chmod +x "$MONITOR_SCRIPT"
 
-log "🎉 Pi Node siap transaksi!"
-log "Gunakan perintah:"
-echo "  pi-node status   -> cek status node"
-echo "  pi-node logs     -> lihat log realtime"
-echo "  pi-node start    -> start node"
-echo "  pi-node stop     -> stop node"
-echo "  pi-node restart  -> restart node"
-echo "  pi-node key      -> lihat private key node (untuk transaksi)"
-echo "  pi-node sync     -> tunggu ledger penuh agar siap transaksi"
+##############################
+# Jalankan monitoring di background
+##############################
+log "=== Jalankan monitoring Pi Node & Telegram ==="
+"$MONITOR_SCRIPT" &
+
+log "🎉 Pi Node & Monitoring siap! Pantau realtime ledger melalui:"
+log "sudo docker logs -f $NODE_CONTAINER_NAME"
