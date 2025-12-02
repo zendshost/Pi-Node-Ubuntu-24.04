@@ -1,54 +1,40 @@
 #!/bin/bash
+
 set -euo pipefail
 IFS=$'\n\t'
 
-# --------- Fungsi log ----------
 log() { echo -e "\e[1;34m[INFO]\e[0m $1"; }
-warn() { echo -e "\e[1;33m[WARN]\e[0m $1"; }
 error() { echo -e "\e[1;31m[ERROR]\e[0m $1" >&2; }
 
-# --------- Variabel ----------
 PI_FOLDER="/root/pi-node"
 DOCKER_VOLUMES="$PI_FOLDER/docker_volumes"
-ENV_FILE="$PI_FOLDER/.env"
-COMPOSE_FILE="$PI_FOLDER/docker-compose.yml"
 SERVICE_NAME="pi-node.service"
+AUTO_UPDATE_SCRIPT="/usr/local/bin/pi-node-auto-update.sh"
 
-# Generate random PostgreSQL password
+# Random PostgreSQL password
 PG_PASSWORD=$(openssl rand -base64 24)
 
-# --------- Update & install dependencies ----------
 log "=== Update & install dependencies ==="
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y curl gnupg lsb-release ca-certificates git wget cron openssl jq
 
-# --------- Install Docker & Compose ----------
 log "=== Install Docker & Compose ==="
 sudo mkdir -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 sudo systemctl enable docker
 sudo systemctl start docker
 
-# --------- Buat folder node & docker volumes ----------
 log "=== Buat folder node & docker volumes ==="
-sudo mkdir -p "$DOCKER_VOLUMES/mainnet/stellar"
-sudo mkdir -p "$DOCKER_VOLUMES/mainnet/supervisor_logs"
-sudo mkdir -p "$DOCKER_VOLUMES/mainnet/history"
+sudo mkdir -p "$DOCKER_VOLUMES/mainnet/stellar" "$DOCKER_VOLUMES/mainnet/supervisor_logs" "$DOCKER_VOLUMES/mainnet/history"
+mkdir -p "$PI_FOLDER"
+cd "$PI_FOLDER"
 
-# --------- Buat file .env jika belum ada ----------
-if [ ! -f "$ENV_FILE" ]; then
-    log "=== Buat file .env default ==="
-    cat > "$ENV_FILE" <<EOF
-POSTGRES_PASSWORD=$PG_PASSWORD
-EOF
-fi
-
-# --------- Buat docker-compose.yml ----------
 log "=== Buat docker-compose.yml ==="
-cat > "$COMPOSE_FILE" <<EOF
+tee docker-compose.yml > /dev/null <<EOF
+version: '3.8'
 services:
   mainnet:
     image: pinetwork/pi-node-docker:organization_mainnet-v1.2-p19.6
@@ -67,13 +53,67 @@ services:
     restart: unless-stopped
 EOF
 
-# --------- Jalankan node ----------
-log "=== Menjalankan container Pi Node ==="
-cd "$PI_FOLDER"
+log "=== Buat file .env dengan node private key ==="
+if [ ! -f .env ]; then
+  NODE_KEY=$(openssl rand -hex 32)
+  echo "NODE_PRIVATE_KEY=$NODE_KEY" > .env
+  echo "PRIVATE_KEY=$NODE_KEY" >> .env
+  log "Node private key telah digenerate dan disimpan di .env"
+else
+  log ".env sudah ada, menggunakan node key yang ada."
+fi
+
+log "=== Jalankan container mainnet ==="
 sudo docker compose up -d
 
-# --------- Buat systemd service ----------
-log "=== Membuat systemd service ==="
+log "=== Buat wrapper pi-node ==="
+tee pi-node > /dev/null <<'EOF'
+#!/bin/bash
+set -euo pipefail
+PI_FOLDER="/root/pi-node"
+cd "$PI_FOLDER"
+
+case "${1:-}" in
+  status)
+    sudo docker ps --filter "name=mainnet"
+    ;;
+  logs)
+    sudo docker logs -f mainnet
+    ;;
+  start)
+    sudo docker start mainnet
+    ;;
+  stop)
+    sudo docker stop mainnet
+    ;;
+  restart)
+    sudo docker restart mainnet
+    ;;
+  key)
+    grep PRIVATE_KEY .env | cut -d'=' -f2
+    ;;
+  sync)
+    echo "[INFO] Menunggu node sinkronisasi ledger penuh..."
+    while true; do
+      LEDGER=$(sudo docker exec mainnet curl -s http://localhost:8000/ledgers | jq '.ledgers | length')
+      if [ "$LEDGER" -gt 0 ]; then
+        echo "[INFO] Node sudah sinkron."
+        break
+      else
+        echo "[INFO] Node belum sinkron, tunggu 30 detik..."
+        sleep 30
+      fi
+    done
+    ;;
+  *)
+    echo "Usage: pi-node {status|logs|start|stop|restart|key|sync}"
+    ;;
+esac
+EOF
+chmod +x pi-node
+sudo mv pi-node /usr/local/bin/
+
+log "=== Buat systemd service ==="
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 sudo tee "$SERVICE_PATH" > /dev/null <<EOF
 [Unit]
@@ -97,31 +137,33 @@ sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 sudo systemctl start "$SERVICE_NAME"
 
-# --------- Script untuk monitor ledger catch-up ----------
-MONITOR_SCRIPT="/usr/local/bin/pi-node-monitor.sh"
-sudo tee "$MONITOR_SCRIPT" > /dev/null <<'EOF'
+log "=== Buat script auto-update ==="
+tee "$AUTO_UPDATE_SCRIPT" > /dev/null <<EOF
 #!/bin/bash
-PI_FOLDER="/root/pi-node"
-while true; do
-    if ! docker ps | grep -q mainnet; then
-        echo "[WARN] Container mainnet tidak berjalan"
-    else
-        STATUS=$(docker exec mainnet pi-node status 2>/dev/null || echo "Tidak tersedia")
-        LEDGER=$(echo "$STATUS" | grep "Ledger:" | awk '{print $2}')
-        QUORUM=$(echo "$STATUS" | grep "Quorum Ledger:" | awk '{print $3}')
-        STATE=$(echo "$STATUS" | grep "State:" | awk -F": " '{print $2}')
-        echo "[INFO] State: $STATE, Ledger: $LEDGER, Quorum Ledger: $QUORUM"
-        if [[ "$STATE" == "Catching up" ]]; then
-            echo "[INFO] Node masih catch-up..."
-        else
-            echo "[INFO] Node sudah synced!"
-        fi
-    fi
-    sleep 60
-done
-EOF
-sudo chmod +x "$MONITOR_SCRIPT"
+set -euo pipefail
+PI_FOLDER="$PI_FOLDER"
+SERVICE_NAME="$SERVICE_NAME"
 
-log "🎉 Pi Node siap dijalankan dan bisa dimonitor!"
-log "Pantau node realtime: sudo journalctl -u $SERVICE_NAME -f"
-log "Pantau status catch-up ledger: sudo $MONITOR_SCRIPT"
+echo "[INFO] Memulai update Pi Node..."
+cd "\$PI_FOLDER"
+# backup .env & docker volumes
+cp .env .env.backup_\$(date +%Y%m%d%H%M)
+sudo docker compose down
+sudo docker pull pinetwork/pi-node-docker:organization_mainnet-v1.2-p19.6
+sudo docker compose up -d
+echo "[INFO] Update selesai, node berjalan kembali."
+EOF
+sudo chmod +x "$AUTO_UPDATE_SCRIPT"
+
+log "=== Jadwalkan cron auto-update setiap 6 jam ==="
+(crontab -l 2>/dev/null; echo "0 */6 * * * $AUTO_UPDATE_SCRIPT >> /var/log/pi-node-auto-update.log 2>&1") | crontab -
+
+log "🎉 Pi Node siap transaksi!"
+log "Gunakan perintah:"
+echo "  pi-node status   -> cek status node"
+echo "  pi-node logs     -> lihat log realtime"
+echo "  pi-node start    -> start node"
+echo "  pi-node stop     -> stop node"
+echo "  pi-node restart  -> restart node"
+echo "  pi-node key      -> lihat private key node (untuk transaksi)"
+echo "  pi-node sync     -> tunggu ledger penuh agar siap transaksi"
