@@ -1,63 +1,47 @@
 #!/bin/bash
-# File: install_and_monitor_pi_node.sh
-# Versi: 1.0
-# Fungsi: Install Pi Node, setup docker, systemd, dan monitoring dengan Telegram
 
 set -euo pipefail
 IFS=$'\n\t'
 
-##############################
-# Fungsi logging
-##############################
 log() { echo -e "\e[1;34m[INFO]\e[0m $1"; }
 error() { echo -e "\e[1;31m[ERROR]\e[0m $1" >&2; }
 
-##############################
-# INPUT TELEGRAM
-##############################
-read -rp "Masukkan Telegram Bot Token: " TELEGRAM_BOT_TOKEN
-read -rp "Masukkan Telegram Chat ID: " TELEGRAM_CHAT_ID
-
-##############################
-# Variabel
-##############################
+# ----- CONFIG -----
 PI_FOLDER="/root/pi-node"
 DOCKER_VOLUMES="$PI_FOLDER/docker_volumes"
 SERVICE_NAME="pi-node.service"
-CHECK_INTERVAL=300 # detik
-NODE_CONTAINER_NAME="mainnet"
+MONITOR_SERVICE="pi-node-monitor.service"
 
-##############################
-# Update & Install dependencies
-##############################
+# Input Telegram token & chat ID
+read -rp "Masukkan token bot Telegram: " TELEGRAM_TOKEN
+read -rp "Masukkan chat ID Telegram: " TELEGRAM_CHAT_ID
+
+# Generate random PostgreSQL password
+PG_PASSWORD=$(openssl rand -base64 24)
+
+# ----- INSTALL DEPENDENCIES -----
 log "=== Update & install dependencies ==="
 apt update && apt upgrade -y
-apt install -y curl gnupg lsb-release ca-certificates git wget cron openssl
+apt install -y curl gnupg lsb-release ca-certificates git wget cron openssl jq
 
-##############################
-# Install Docker & Compose
-##############################
+# ----- INSTALL DOCKER & COMPOSE -----
 log "=== Install Docker & Compose ==="
 mkdir -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
 apt update
 apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable docker
 systemctl start docker
 
-##############################
-# Install Pi Node (manual .deb)
-##############################
-log "=== Install Pi Node ==="
-mkdir -p "$PI_FOLDER" "$DOCKER_VOLUMES"
+# ----- PI NODE FOLDER & DOCKER VOLUMES -----
+log "=== Buat folder Pi Node & docker volumes ==="
+mkdir -p "$DOCKER_VOLUMES/mainnet/stellar"
+mkdir -p "$DOCKER_VOLUMES/mainnet/supervisor_logs"
+mkdir -p "$DOCKER_VOLUMES/mainnet/history"
 
-# Buat .env contoh
-cat > "$PI_FOLDER/.env" <<EOF
-# Pi Node Environment
-EOF
-
-# Buat docker-compose.yml (versi berhasil)
+# ----- CREATE docker-compose.yml -----
+log "=== Buat docker-compose.yml ==="
 cat > "$PI_FOLDER/docker-compose.yml" <<EOF
 services:
   mainnet:
@@ -77,19 +61,29 @@ services:
     restart: unless-stopped
 EOF
 
-##############################
-# Jalankan Pi Node pertama kali
-##############################
-log "=== Jalankan container Pi Node ==="
-cd "$PI_FOLDER"
-docker compose up -d
+# ----- CREATE .env -----
+# Auto-generate Pi Node private key
+NODE_PRIVATE_KEY=$(openssl rand -hex 32)
+cat > "$PI_FOLDER/.env" <<EOF
+POSTGRES_PASSWORD=$PG_PASSWORD
+NODE_PRIVATE_KEY=$NODE_PRIVATE_KEY
+EOF
 
-##############################
-# Buat systemd service Pi Node
-##############################
-log "=== Buat systemd service Pi Node ==="
-SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
-tee "$SERVICE_PATH" > /dev/null <<EOF
+# ----- INITIALIZE PI NODE -----
+log "=== Initialize Pi Node ==="
+pi-node initialize \
+  --pi-folder "$PI_FOLDER" \
+  --docker-volumes "$DOCKER_VOLUMES" \
+  --auto-confirm \
+  --setup-auto-updates \
+  --start-node \
+  --postgres-password "$PG_PASSWORD" \
+  --node-private-key "$NODE_PRIVATE_KEY" \
+  --force
+
+# ----- SYSTEMD SERVICE FOR PI NODE -----
+log "=== Buat systemd service untuk Pi Node ==="
+cat > /etc/systemd/system/$SERVICE_NAME <<EOF
 [Unit]
 Description=Pi Node
 After=docker.service
@@ -111,59 +105,69 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
 
-##############################
-# Buat script monitoring & notifikasi Telegram
-##############################
-log "=== Buat script monitoring Pi Node & Telegram ==="
+# ----- SMART MONITORING SCRIPT -----
 MONITOR_SCRIPT="$PI_FOLDER/pi-node-monitor.sh"
-tee "$MONITOR_SCRIPT" > /dev/null <<EOF
+log "=== Buat smart monitoring script ==="
+cat > "$MONITOR_SCRIPT" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 
-NODE_CONTAINER_NAME="$NODE_CONTAINER_NAME"
-CHECK_INTERVAL=$CHECK_INTERVAL
-TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
-TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID"
+PI_FOLDER="/root/pi-node"
+TELEGRAM_TOKEN="__TELEGRAM_TOKEN__"
+TELEGRAM_CHAT_ID="__TELEGRAM_CHAT_ID__"
+LAST_STATE=""
 
-send_telegram() {
-    local message="\$1"
-    curl -s -X POST "https://api.telegram.org/bot\${TELEGRAM_BOT_TOKEN}/sendMessage" \
-        -d chat_id="\${TELEGRAM_CHAT_ID}" \
-        -d text="\${message}" > /dev/null
-}
-
-log() { echo -e "[INFO] \$(date '+%Y-%m-%d %H:%M:%S') - \$1"; }
-
-log "Memulai monitoring Pi Node..."
 while true; do
-    if ! docker ps --format '{{.Names}}' | grep -q "^\\${NODE_CONTAINER_NAME}\$"; then
-        log "Container \${NODE_CONTAINER_NAME} tidak berjalan."
-        send_telegram "⚠️ Pi Node container \${NODE_CONTAINER_NAME} tidak berjalan!"
-        sleep \$CHECK_INTERVAL
-        continue
-    fi
+  CORE_LEDGER=$(docker exec mainnet stellar-core info | jq -r '.info.ledger')
+  INGEST_LEDGER=$(docker exec mainnet pi-node info | jq -r '.ingest_latest_ledger')
 
-    INGEST_LEDGER=\$(docker exec -i "\$NODE_CONTAINER_NAME" pi-node status 2>/dev/null | grep "Ingest Latest Ledger" | awk '{print \$NF}' || echo 0)
-    CORE_LEDGER=\$(docker exec -i "\$NODE_CONTAINER_NAME" pi-node status 2>/dev/null | grep "Core Latest Ledger" | awk '{print \$NF}' || echo 0)
+  if [[ "$INGEST_LEDGER" -lt "$CORE_LEDGER" ]]; then
+    STATE="syncing"
+    MESSAGE="Ledger belum sinkron. Ingest: $INGEST_LEDGER / Core: $CORE_LEDGER"
+  else
+    STATE="synced"
+    MESSAGE="Ledger sudah sinkron! Ingest: $INGEST_LEDGER / Core: $CORE_LEDGER"
+  fi
 
-    if [[ "\$INGEST_LEDGER" == "\$CORE_LEDGER" ]] && [[ "\$CORE_LEDGER" != "0" ]]; then
-        log "✅ Node sudah sinkron! Ledger: \$INGEST_LEDGER"
-        send_telegram "🎉 Pi Node siap transaksi! Ledger: \$INGEST_LEDGER"
-        break
-    else
-        log "Ledger belum sinkron. Ingest: \$INGEST_LEDGER / Core: \$CORE_LEDGER"
-    fi
-    sleep \$CHECK_INTERVAL
+  if [[ "$STATE" != "$LAST_STATE" ]]; then
+    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+         -d chat_id="$TELEGRAM_CHAT_ID" \
+         -d text="$MESSAGE"
+    LAST_STATE="$STATE"
+  fi
+
+  sleep 300
 done
 EOF
 
+# Ganti token & chat_id
+sed -i "s|__TELEGRAM_TOKEN__|$TELEGRAM_TOKEN|" "$MONITOR_SCRIPT"
+sed -i "s|__TELEGRAM_CHAT_ID__|$TELEGRAM_CHAT_ID|" "$MONITOR_SCRIPT"
 chmod +x "$MONITOR_SCRIPT"
 
-##############################
-# Jalankan monitoring di background
-##############################
-log "=== Jalankan monitoring Pi Node & Telegram ==="
-"$MONITOR_SCRIPT" &
+# ----- SYSTEMD SERVICE FOR SMART MONITOR -----
+log "=== Buat systemd service untuk smart monitoring ==="
+cat > /etc/systemd/system/$MONITOR_SERVICE <<EOF
+[Unit]
+Description=Pi Node Smart Monitor & Telegram
+After=pi-node.service
+Requires=pi-node.service
 
-log "🎉 Pi Node & Monitoring siap! Pantau realtime ledger melalui:"
-log "sudo docker logs -f $NODE_CONTAINER_NAME"
+[Service]
+ExecStart=$MONITOR_SCRIPT
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable "$MONITOR_SERVICE"
+systemctl start "$MONITOR_SERVICE"
+
+log "🎉 Pi Node siap transaksi & Smart Monitoring aktif!"
+log "Node otomatis berjalan walau logout atau reboot."
+log "Cek status node: sudo systemctl status $SERVICE_NAME"
+log "Cek status smart monitoring: sudo systemctl status $MONITOR_SERVICE"
+log "Private key Pi Node: $NODE_PRIVATE_KEY (jangan hilangkan!)"
