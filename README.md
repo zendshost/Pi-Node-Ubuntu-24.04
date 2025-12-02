@@ -24,6 +24,8 @@ Memudahkan setup node dari awal hingga siap menjalankan protokol Pi.
 - Tambahkan repository resmi Pi Network
 - Instalasi Pi Node CLI resmi
 - Initialize node untuk berpartisipasi dalam jaringan
+- Reset Horizon database jika perlu
+- Monitoring status node & ledger
 
 ---
 
@@ -79,7 +81,7 @@ cd /root/pi-node
 pi-node status
 ```
 
-Jika berhasil, output awal akan terlihat seperti ini (node **baru**):
+Jika berhasil, output awal akan terlihat seperti ini (**node baru**):
 
 ```
 🐳 Container Status
@@ -89,9 +91,9 @@ Jika berhasil, output awal akan terlihat seperti ini (node **baru**):
 ⭐ Protocol Status
 =================
 State: Catching up
-Status: Catching up to ledger 24001791: Applying buckets 7%. Currently on level 10
+Status: Waiting for trigger ledger: 24004633/24004673, ETA: 200s
 Ledger: 1
-Quorum Ledger: 24001849
+Quorum Ledger: 24004632
 
 🌅 Horizon Status
 =================
@@ -102,8 +104,8 @@ Ingest Latest Ledger: Not synced
 
 🌐 Peer Connections
 ==================
-Incoming: 5 peers
-Outgoing: 57 peers
+Incoming: 1 peers
+Outgoing: 56 peers
 ```
 
 ---
@@ -113,12 +115,33 @@ Outgoing: 57 peers
 ### Node Baru (Belum Sinkron)
 
 * Node **belum bisa melakukan transaksi**.
-* Perlu waktu **±1–2 hari** untuk menyinkronkan ledger dengan jaringan.
+* Ledger mulai dari 1, perlu proses ingestion dari checkpoint.
+* Proses sinkronisasi bisa memakan waktu **±1–2 hari**, tergantung performa server dan koneksi.
 
 ### Node Siap Digunakan
 
 * Setelah sinkronisasi selesai, ledger sudah up-to-date.
 * Node sekarang **siap melakukan transaksi**.
+
+---
+
+## 🔄 Reset Horizon Database
+
+Jika Horizon error atau ingestion macet, lakukan **reset Horizon**:
+
+```bash
+sudo bash reset-horizon.sh
+```
+
+Proses ini akan:
+
+1. Stop Horizon & Stellar-Core
+2. Terminate semua koneksi ke database Horizon
+3. Drop & recreate database Horizon
+4. Hapus cache dan history Horizon
+5. Restart Stellar-Core & Horizon
+
+Setelah reset, node akan mulai ingest ledger dari awal.
 
 ---
 
@@ -165,6 +188,7 @@ sudo systemctl status docker
 
 * Jalankan node secara rutin agar ledger cepat sinkron.
 * Gunakan user dengan hak `sudo` selama instalasi.
+* Jika ingestion macet, gunakan `reset-horizon.sh` untuk restart proses.
 
 ---
 
@@ -181,3 +205,5 @@ Open-source, bebas digunakan dan dimodifikasi sesuai kebutuhan.
 ---
 
 Made with ❤️ for Pi Network ZendsHost
+Apakah mau saya tambahkan bagian itu juga?
+```
