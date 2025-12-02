@@ -3,7 +3,6 @@ set -euo pipefail
 
 echo -e "\e[1;34m[INFO] Reset Horizon Database Pi Node\e[0m"
 
-# Masuk container mainnet
 CONTAINER="mainnet"
 echo -e "\e[1;32m[1/6] Masuk container $CONTAINER\e[0m"
 
@@ -23,7 +22,7 @@ su - postgres -c \"createdb horizon\"
 echo '[5/6] Start Stellar-Core & Horizon'
 supervisorctl start stellar-core
 supervisorctl start horizon
-
-echo '[6/6] Proses reset selesai, cek status node'
-pi-node status
 "
+
+echo -e "\e[1;32m[6/6] Proses reset selesai, cek status node\e[0m"
+pi-node status
