@@ -102,7 +102,3 @@ Repository ini bersifat **open-source**. Gunakan dan modifikasi sesuai kebutuhan
 ## 🔗 Link Repository
 
 [https://github.com/zendshost/Pi-Node-Ubuntu-24.04](https://github.com/zendshost/Pi-Node-Ubuntu-24.04.git)
-
-
-Apakah mau saya buatkan versi itu juga?
-```
