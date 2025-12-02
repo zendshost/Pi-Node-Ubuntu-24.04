@@ -205,5 +205,3 @@ Open-source, bebas digunakan dan dimodifikasi sesuai kebutuhan.
 ---
 
 Made with ❤️ for Pi Network ZendsHost
-Apakah mau saya tambahkan bagian itu juga?
-```
