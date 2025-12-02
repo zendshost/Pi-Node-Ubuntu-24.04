@@ -8,8 +8,11 @@ error() { echo -e "\e[1;31m[ERROR]\e[0m $1" >&2; }
 
 PI_FOLDER="/root/pi-node"
 DOCKER_VOLUMES="$PI_FOLDER/docker_volumes"
-COMPOSE_FILE="$PI_FOLDER/docker-compose.yml"
 SERVICE_NAME="pi-node.service"
+COMPOSE_FILE="$PI_FOLDER/docker-compose.yml"
+
+# Generate random PostgreSQL password
+PG_PASSWORD=$(openssl rand -base64 24)
 
 log "=== Update & install dependencies ==="
 sudo apt update && sudo apt upgrade -y
@@ -24,8 +27,16 @@ sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 sudo systemctl enable docker
 sudo systemctl start docker
 
+log "=== Tambahkan repo Pi Node & install ==="
+curl -fsSL https://apt.minepi.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/minepi-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/minepi-archive-keyring.gpg] https://apt.minepi.com stable main" | sudo tee /etc/apt/sources.list.d/minepi.list
+sudo apt update
+sudo apt install -y pi-node || true  # pi-node package optional, kita pakai docker-compose manual
+
 log "=== Buat folder node & docker volumes ==="
-sudo mkdir -p "$DOCKER_VOLUMES/mainnet/stellar" "$DOCKER_VOLUMES/mainnet/supervisor_logs" "$DOCKER_VOLUMES/mainnet/history"
+sudo mkdir -p "$DOCKER_VOLUMES/mainnet/stellar"
+sudo mkdir -p "$DOCKER_VOLUMES/mainnet/supervisor_logs"
+sudo mkdir -p "$DOCKER_VOLUMES/mainnet/history"
 
 log "=== Buat docker-compose.yml ==="
 sudo tee "$COMPOSE_FILE" > /dev/null <<EOF
@@ -47,34 +58,33 @@ services:
     restart: unless-stopped
 EOF
 
-log "=== Buat file .env kosong (jika perlu) ==="
-touch "$PI_FOLDER/.env"
-
 log "=== Jalankan container mainnet ==="
 sudo docker compose -f "$COMPOSE_FILE" up -d
 
 log "=== Buat script wrapper pi-node ==="
-sudo tee /usr/local/bin/pi-node > /dev/null <<EOF
+WRAPPER="/usr/local/bin/pi-node"
+sudo tee "$WRAPPER" > /dev/null <<'EOF'
 #!/bin/bash
-PI_FOLDER="$PI_FOLDER"
-COMPOSE_FILE="\$PI_FOLDER/docker-compose.yml"
+PI_FOLDER="/root/pi-node"
+COMPOSE_FILE="$PI_FOLDER/docker-compose.yml"
 
-case "\$1" in
+case "$1" in
   status)
-    sudo docker exec mainnet /start --status
+    sudo docker ps | grep mainnet
+    sudo docker logs --tail 20 mainnet
     ;;
   logs)
-    sudo docker compose -f "\$COMPOSE_FILE" logs -f
+    sudo docker logs -f mainnet
     ;;
   start)
-    sudo docker compose -f "\$COMPOSE_FILE" up -d
+    sudo docker compose -f "$COMPOSE_FILE" up -d
     ;;
   stop)
-    sudo docker compose -f "\$COMPOSE_FILE" down
+    sudo docker compose -f "$COMPOSE_FILE" down
     ;;
   restart)
-    sudo docker compose -f "\$COMPOSE_FILE" down
-    sudo docker compose -f "\$COMPOSE_FILE" up -d
+    sudo docker compose -f "$COMPOSE_FILE" down
+    sudo docker compose -f "$COMPOSE_FILE" up -d
     ;;
   *)
     echo "Usage: pi-node {status|logs|start|stop|restart}"
@@ -82,12 +92,10 @@ case "\$1" in
     ;;
 esac
 EOF
-
-sudo chmod +x /usr/local/bin/pi-node
+sudo chmod +x "$WRAPPER"
 
 log "=== Buat systemd service agar otomatis start saat boot ==="
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
-
 sudo tee "$SERVICE_PATH" > /dev/null <<EOF
 [Unit]
 Description=Pi Node
@@ -109,6 +117,25 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 sudo systemctl start "$SERVICE_NAME"
+
+log "=== Buat script auto-update Pi Node ==="
+AUTO_UPDATE_SCRIPT="/usr/local/bin/pi-node-auto-update.sh"
+sudo tee "$AUTO_UPDATE_SCRIPT" > /dev/null <<EOF
+#!/bin/bash
+set -euo pipefail
+PI_FOLDER="$PI_FOLDER"
+SERVICE_NAME="$SERVICE_NAME"
+
+echo "[INFO] Memulai update Pi Node..."
+sudo apt update
+sudo apt install -y pi-node || true
+sudo docker compose -f "\$PI_FOLDER/docker-compose.yml" pull
+sudo systemctl restart "\$SERVICE_NAME"
+EOF
+sudo chmod +x "$AUTO_UPDATE_SCRIPT"
+
+log "=== Jadwalkan cron job auto-update setiap 6 jam ==="
+(crontab -l 2>/dev/null; echo "0 */6 * * * $AUTO_UPDATE_SCRIPT >> /var/log/pi-node-auto-update.log 2>&1") | crontab -
 
 log "🎉 Pi Node siap dijalankan!"
 log "Gunakan perintah:"
