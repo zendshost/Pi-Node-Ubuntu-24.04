@@ -82,12 +82,24 @@ while true; do
         echo -e "\e[1;32mHorizon sudah running.\e[0m"
         break
     else
-        echo -e "\e[1;33mMenunggu Horizon siap, cek lagi dalam 15 detik...\e[0m"
+        echo -e "\e[1;33mProses synced Mohon Tunggu...\e[0m"
         sleep 15
     fi
 done
 
 echo
 echo -e "\e[1;32mNode Pi Network siap digunakan!\e[0m"
-echo "Cek status node: pi-node status"
+
+###############################################
+# 9. Jalankan otomatis status node
+###############################################
+echo -e "\e[1;36mMenjalankan pi-node status...\e[0m"
+pi-node status
+
+echo -e "\e[1;36mMenjalankan pi-node protocol-status...\e[0m"
+pi-node protocol-status
+
+###############################################
+# 10. Pesan penutup
+###############################################
 echo "Masuk folder node: cd /root/pi-node"
